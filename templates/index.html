@@ -1,0 +1,1442 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Maintenance - Système de Maintenance Prédictive</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .sidebar-item {
+            transition: all 0.3s ease;
+        }
+        .sidebar-item:hover, .sidebar-item.active {
+            background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            transform: translateX(5px);
+        }
+        .status-dot {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .alarm-card {
+            transition: all 0.3s ease;
+            border-left: 4px solid transparent;
+        }
+        .alarm-card.critical {
+            border-left-color: #ef4444;
+            background: #fef2f2;
+        }
+        .alarm-card.warning {
+            border-left-color: #f59e0b;
+            background: #fffbeb;
+        }
+        .equipment-card {
+            transition: transform 0.2s;
+        }
+        .equipment-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .realtime-value {
+            font-variant-numeric: tabular-nums;
+            transition: color 0.3s ease;
+        }
+        .realtime-value.critical { color: #dc2626; font-weight: 700; }
+        .realtime-value.warning { color: #d97706; font-weight: 600; }
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            z-index: 1000;
+            transform: translateX(150%);
+            transition: transform 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .toast.show { transform: translateX(0); }
+        .toast.success { background: #10b981; }
+        .toast.error { background: #ef4444; }
+        .toast.info { background: #3b82f6; }
+        .progress-bar {
+            transition: width 0.5s ease, background-color 0.3s ease;
+        }
+        .demo-badge-wrapper {
+            position: fixed;
+            top: 10px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+            z-index: 999;
+            pointer-events: none; /* le wrapper n'intercepte pas les clics */
+        }
+        .demo-badge-wrapper .demo-badge {
+            position: static;
+            transform: none;
+            pointer-events: auto; /* le badge lui intercepte les clics */
+        }
+        .demo-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            white-space: nowrap;
+            transition: box-shadow 0.2s, opacity 0.2s;
+        }
+        .demo-badge:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            opacity: 0.95;
+        }
+        .synoptic-container {
+            position: relative;
+            width: 100%;
+            height: 400px;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .synoptic-line {
+            position: absolute;
+            height: 4px;
+            background: linear-gradient(90deg, #3b82f6, #06b6d4);
+            border-radius: 2px;
+            transition: all 0.3s;
+        }
+        .synoptic-equip {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        .synoptic-equip:hover {
+            transform: scale(1.1);
+            z-index: 10;
+        }
+        .synoptic-equip.active {
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+        }
+        .synoptic-equip.warning {
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.5);
+            border: 2px solid #f59e0b;
+        }
+        .synoptic-equip.critical {
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+            border: 2px solid #ef4444;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .data-flow {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #06b6d4;
+            animation: flow 2s linear infinite;
+        }
+        @keyframes flow {
+            0% { transform: translateX(0); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateX(300px); opacity: 0; }
+        }
+
+                /* AI Assistant Styles */
+        .ai-message {
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .ai-typing {
+            display: flex;
+            gap: 4px;
+            padding: 12px;
+        }
+        .ai-typing .dot {
+            width: 8px;
+            height: 8px;
+            background: #a855f7;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+        .ai-typing .dot:nth-child(2) { animation-delay: 0.2s; }
+        .ai-typing .dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-10px); }
+        }
+        .checklist-item {
+            transition: all 0.2s;
+        }
+        .checklist-item:hover {
+            background: #f8fafc;
+        }
+        .checklist-item.completed {
+            opacity: 0.6;
+            text-decoration: line-through;
+        }
+        .checklist-item.completed .check-circle {
+            background: #10b981;
+            border-color: #10b981;
+        }
+        .check-circle {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #cbd5e1;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .check-circle:hover {
+            border-color: #a855f7;
+        }
+        .check-circle i {
+            color: white;
+            font-size: 10px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .checklist-item.completed .check-circle i {
+            opacity: 1;
+        }
+        .severity-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .severity-indicator.critical {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+        .severity-indicator.warning {
+            background: #fffbeb;
+            color: #d97706;
+            border: 1px solid #fde68a;
+        }
+        .severity-indicator.info {
+            background: #eff6ff;
+            color: #2563eb;
+            border: 1px solid #bfdbfe;
+        }
+        .diagnostic-card {
+            border-left: 4px solid;
+            transition: all 0.3s;
+        }
+        .diagnostic-card.critical { border-left-color: #ef4444; }
+        .diagnostic-card.warning { border-left-color: #f59e0b; }
+        .diagnostic-card.info { border-left-color: #3b82f6; }
+        .pulse-dot {
+            animation: pulse-dot 2s infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 overflow-hidden">
+
+    <!-- Badge Mode Demo -->
+    <div class="demo-badge-wrapper">
+    <div id="demoBadge" class="demo-badge hidden" onclick="toggleDemoMode()">
+        <i class="fas fa-microchip mr-1"></i> Mode Simulation ESP32
+    </div>
+</div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer"></div>
+
+    <!-- Login Screen -->
+    <div id="loginScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
+        <div class="glass-panel p-8 rounded-2xl shadow-2xl w-full max-w-md mx-4">
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-blue-600 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+                    <i class="fas fa-industry text-2xl text-white"></i>
+                </div>
+                <h1 class="text-2xl font-bold text-slate-800">Smart Maintenance</h1>
+                <p class="text-slate-500 mt-2">Système Intelligent de Maintenance Prédictive</p>
+                <p class="text-xs text-slate-400 mt-1">Ligne de conditionnement industrielle</p>
+            </div>
+            
+            <form id="loginForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Identifiant</label>
+                    <div class="relative">
+                        <i class="fas fa-user absolute left-3 top-3 text-slate-400"></i>
+                        <select id="userRoleSelect" class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white">
+                            <option value="superviseur">superviseur</option>
+                            <option value="maintenance">agent_maintenance</option>
+                            <option value="operateur">operateur</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Mot de passe</label>
+                    <div class="relative">
+                        <i class="fas fa-lock absolute left-3 top-3 text-slate-400"></i>
+                        <input type="password" id="passwordInput" class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" placeholder="••••••••" value="password">
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between text-sm">
+                    <label class="flex items-center">
+                        <input type="checkbox" class="mr-2 rounded text-blue-600 focus:ring-blue-500">
+                        <span class="text-slate-600">Se souvenir de moi</span>
+                    </label>
+                    <a href="#" class="text-blue-600 hover:underline">Mot de passe oublié ?</a>
+                </div>
+                
+                <button type="submit" id="loginBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition-colors shadow-lg shadow-blue-600/30">
+                    Connexion
+                </button>
+            </form>
+            
+            <div id="loginError" class="hidden mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm text-center"></div>
+            
+            <div class="mt-6 text-center text-xs text-slate-500">
+                <p>Rôles disponibles : Superviseur | Agent de maintenance | Opérateur</p>
+                <p class="mt-1 text-slate-400">Mot de passe par défaut : password</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Application -->
+    <div id="app" class="hidden h-screen flex">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-slate-900 text-white flex flex-col shadow-2xl">
+            <div class="p-6 border-b border-slate-700">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-industry text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg leading-tight">Smart Maint.</h1>
+                        <p class="text-xs text-slate-400">v2.4.0</p>
+                    </div>
+                </div>
+            </div>
+            
+            <nav class="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+                <div class="px-3 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Tableau de bord</div>
+                
+                <button onclick="showSection('dashboard')" class="sidebar-item active w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium" data-role="superviseur,operateur,maintenance">
+                    <i class="fas fa-chart-line w-5"></i>
+                    Vue Générale Ligne
+                </button>
+                
+                <button onclick="showSection('supervision')" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white" data-role="superviseur,operateur">
+                    <i class="fas fa-desktop w-5"></i>
+                    Supervision Équipements
+                </button>
+                
+                <button onclick="showSection('alarms')" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white" data-role="superviseur,operateur,maintenance">
+                    <i class="fas fa-bell w-5"></i>
+                    Gestion des Alarmes
+                    <span id="alarmBadge" class="ml-auto bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">0</span>
+                </button>
+                
+                <div class="px-3 mb-2 mt-6 text-xs font-semibold text-slate-500 uppercase tracking-wider">Maintenance (GMAO)</div>
+                
+                 <button onclick="showSection('aiassistant')" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white" data-role="superviseur,maintenance">
+                    <i class="fas fa-robot w-5"></i>
+                    Assistant IA Maintenance
+                    <span id="aiBadge" class="ml-auto bg-purple-500 text-white text-xs px-2 py-0.5 rounded-full hidden">0</span>
+                </button>
+
+                <button onclick="showSection('workorders')" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white" data-role="superviseur,maintenance">
+                    <i class="fas fa-clipboard-list w-5"></i>
+                    Ordres de Travail
+                </button>
+                
+                <button onclick="showSection('planning')" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white" data-role="superviseur,maintenance">
+                    <i class="fas fa-calendar-alt w-5"></i>
+                    Planification Préventive
+                </button>
+                
+                <button onclick="showSection('reports')" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white" data-role="superviseur,maintenance">
+                    <i class="fas fa-file-alt w-5"></i>
+                    Rapports d'Intervention
+                </button>
+                
+                <div class="px-3 mb-2 mt-6 text-xs font-semibold text-slate-500 uppercase tracking-wider">Administration</div>
+                
+                <button onclick="showSection('users')" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white" data-role="superviseur">
+                    <i class="fas fa-users w-5"></i>
+                    Gestion Utilisateurs
+                </button>
+                
+                <button onclick="showSection('thresholds')" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white" data-role="superviseur,maintenance">
+                    <i class="fas fa-sliders-h w-5"></i>
+                    Configuration Seuils
+                </button>
+                
+                <button onclick="showSection('settings')" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white" data-role="superviseur">
+                    <i class="fas fa-cog w-5"></i>
+                    Paramètres Système
+                </button>
+            </nav>
+            
+            <div class="p-4 border-t border-slate-700">
+                <div class="flex items-center gap-3">
+                    <img id="userAvatar" src="https://ui-avatars.com/api/?name=User&background=3b82f6&color=fff" class="w-10 h-10 rounded-full">
+                    <div class="flex-1 min-w-0">
+                        <p id="userName" class="text-sm font-medium truncate">Utilisateur</p>
+                        <p id="userRoleDisplay" class="text-xs text-slate-400">Rôle</p>
+                    </div>
+                    <button onclick="logout()" class="text-slate-400 hover:text-white">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col overflow-hidden bg-slate-50">
+            <!-- Header -->
+            <header class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+                <div>
+                    <h2 id="pageTitle" class="text-xl font-bold text-slate-800">Vue Générale Ligne</h2>
+                    <p id="pageSubtitle" class="text-sm text-slate-500">Chaîne d'embouteillage - Temps réel</p>
+                </div>
+                
+                <div class="flex items-center gap-4">
+                    <div id="systemStatus" class="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-sm font-medium border border-green-200">
+                        <span class="w-2 h-2 bg-green-500 rounded-full status-dot"></span>
+                        Système en ligne
+                    </div>
+                    
+                    <div class="text-right">
+                        <p id="clock" class="text-lg font-mono font-semibold text-slate-700">--:--:--</p>
+                        <p id="date" class="text-xs text-slate-500">-- ----- ----</p>
+                    </div>
+                    
+                    <button class="relative p-2 text-slate-400 hover:text-slate-600" onclick="showSection('alarms')">
+                        <i class="fas fa-bell text-xl"></i>
+                        <span id="headerAlarmBadge" class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full hidden"></span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="flex-1 overflow-y-auto p-6">
+                
+                <!-- DASHBOARD SECTION -->
+                <div id="dashboardSection" class="space-y-6 fade-in">
+                    <!-- KPI Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="p-3 bg-blue-50 rounded-lg">
+                                    <i class="fas fa-cog text-blue-600 text-xl"></i>
+                                </div>
+                                <span id="kpiStatusBadge" class="text-xs font-medium text-green-600 bg-green-50 px-2 py-1 rounded">Normal</span>
+                            </div>
+                            <h3 class="text-slate-500 text-sm font-medium">État Général</h3>
+                            <p id="kpiStatus" class="text-2xl font-bold text-slate-800 mt-1">Opérationnel</p>
+                            <p id="kpiStatusDetail" class="text-xs text-slate-400 mt-2">100% des équipements actifs</p>
+                        </div>
+                        
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="p-3 bg-amber-50 rounded-lg">
+                                    <i class="fas fa-exclamation-triangle text-amber-600 text-xl"></i>
+                                </div>
+                                <span id="kpiAlarmBadge" class="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-1 rounded">0 active</span>
+                            </div>
+                            <h3 class="text-slate-500 text-sm font-medium">Alarmes</h3>
+                            <p id="kpiCriticalAlarms" class="text-2xl font-bold text-slate-800 mt-1">0 Critique</p>
+                            <p id="kpiAlarmDetail" class="text-xs text-slate-400 mt-2">0 Avertissement en attente</p>
+                        </div>
+                        
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="p-3 bg-purple-50 rounded-lg">
+                                    <i class="fas fa-wrench text-purple-600 text-xl"></i>
+                                </div>
+                                <span class="text-xs font-medium text-purple-600 bg-purple-50 px-2 py-1 rounded">Cette semaine</span>
+                            </div>
+                            <h3 class="text-slate-500 text-sm font-medium">Interventions</h3>
+                            <p id="kpiWorkOrders" class="text-2xl font-bold text-slate-800 mt-1">0 OT</p>
+                            <p id="kpiWorkOrderDetail" class="text-xs text-slate-400 mt-2">0 préventives, 0 correctives</p>
+                        </div>
+                        
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="p-3 bg-emerald-50 rounded-lg">
+                                    <i class="fas fa-chart-pie text-emerald-600 text-xl"></i>
+                                </div>
+                                <span id="kpiOEEBadge" class="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded">+0%</span>
+                            </div>
+                            <h3 class="text-slate-500 text-sm font-medium">Efficacité</h3>
+                            <p id="kpiOEE" class="text-2xl font-bold text-slate-800 mt-1">0%</p>
+                            <p class="text-xs text-slate-400 mt-2">OEE Chaîne d'embouteillage</p>
+                        </div>
+                    </div>
+
+                    <!-- Equipment Status -->
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6" id="equipmentCards">
+                        <!-- Remplisseuse -->
+                        <div class="equipment-card bg-white rounded-xl p-6 shadow-sm border border-slate-200" data-equip="remplisseuse">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-fill-drip text-blue-600 text-xl"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="font-bold text-slate-800">Remplisseuse</h3>
+                                        <p class="text-xs text-slate-500">Station #1</p>
+                                    </div>
+                                </div>
+                                <span id="status-remplisseuse" class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">En marche</span>
+                            </div>
+                            
+                            <div class="space-y-3">
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-slate-500">Température</span>
+                                    <span id="val-remplisseuse-temperature" class="font-mono font-semibold text-slate-700 realtime-value">--.-°C</span>
+                                </div>
+                                <div class="w-full bg-slate-100 rounded-full h-2">
+                                    <div id="bar-remplisseuse-temperature" class="progress-bar bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
+                                </div>
+                                
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-slate-500">Pression</span>
+                                    <span id="val-remplisseuse-pressure" class="font-mono font-semibold text-slate-700 realtime-value">--.- bar</span>
+                                </div>
+                                <div class="w-full bg-slate-100 rounded-full h-2">
+                                    <div id="bar-remplisseuse-pressure" class="progress-bar bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
+                                </div>
+                                
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-slate-500">Vibration</span>
+                                    <span id="val-remplisseuse-vibration" class="font-mono font-semibold text-slate-700 realtime-value">--.- mm/s</span>
+                                </div>
+                                <div class="w-full bg-slate-100 rounded-full h-2">
+                                    <div id="bar-remplisseuse-vibration" class="progress-bar bg-green-500 h-2 rounded-full" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+                                <span class="text-xs text-slate-400">Dernière maintenance: --/--/----</span>
+                                <button onclick="showEquipmentDetail('remplisseuse')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                                    Détails <i class="fas fa-arrow-right ml-1"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Compresseur -->
+                        <div class="equipment-card bg-white rounded-xl p-6 shadow-sm border border-slate-200" data-equip="compresseur">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-12 h-12 bg-cyan-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-wind text-cyan-600 text-xl"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="font-bold text-slate-800">Compresseur d'air</h3>
+                                        <p class="text-xs text-slate-500">Station #2</p>
+                                    </div>
+                                </div>
+                                <span id="status-compresseur" class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">En marche</span>
+                            </div>
+                            
+                            <div class="space-y-3">
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-slate-500">Température</span>
+                                    <span id="val-compresseur-temperature" class="font-mono font-semibold text-slate-700 realtime-value">--.-°C</span>
+                                </div>
+                                <div class="w-full bg-slate-100 rounded-full h-2">
+                                    <div id="bar-compresseur-temperature" class="progress-bar bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
+                                </div>
+                                
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-slate-500">Pression</span>
+                                    <span id="val-compresseur-pressure" class="font-mono font-semibold text-slate-700 realtime-value">--.- bar</span>
+                                </div>
+                                <div class="w-full bg-slate-100 rounded-full h-2">
+                                    <div id="bar-compresseur-pressure" class="progress-bar bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
+                                </div>
+                                
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-slate-500">Courant</span>
+                                    <span id="val-compresseur-current" class="font-mono font-semibold text-slate-700 realtime-value">--.- A</span>
+                                </div>
+                                <div class="w-full bg-slate-100 rounded-full h-2">
+                                    <div id="bar-compresseur-current" class="progress-bar bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+                                <span id="alert-compresseur" class="text-xs text-slate-400">En attente de données...</span>
+                                <button onclick="showEquipmentDetail('compresseur')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                                    Détails <i class="fas fa-arrow-right ml-1"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Convoyeur -->
+                        <div class="equipment-card bg-white rounded-xl p-6 shadow-sm border border-slate-200" data-equip="convoyeur">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-conveyor-belt text-indigo-600 text-xl"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="font-bold text-slate-800">Convoyeur</h3>
+                                        <p class="text-xs text-slate-500">Station #3</p>
+                                    </div>
+                                </div>
+                                <span id="status-convoyeur" class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">En marche</span>
+                            </div>
+                            
+                            <div class="space-y-3">
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-slate-500">Vitesse</span>
+                                    <span id="val-convoyeur-speed" class="font-mono font-semibold text-slate-700 realtime-value">--.- m/s</span>
+                                </div>
+                                <div class="w-full bg-slate-100 rounded-full h-2">
+                                    <div id="bar-convoyeur-speed" class="progress-bar bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
+                                </div>
+                                
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-slate-500">Vibration</span>
+                                    <span id="val-convoyeur-vibration" class="font-mono font-semibold text-slate-700 realtime-value">--.- mm/s</span>
+                                </div>
+                                <div class="w-full bg-slate-100 rounded-full h-2">
+                                    <div id="bar-convoyeur-vibration" class="progress-bar bg-green-500 h-2 rounded-full" style="width: 0%"></div>
+                                </div>
+                                
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-slate-500">Courant</span>
+                                    <span id="val-convoyeur-current" class="font-mono font-semibold text-slate-700 realtime-value">--.- A</span>
+                                </div>
+                                <div class="w-full bg-slate-100 rounded-full h-2">
+                                    <div id="bar-convoyeur-current" class="progress-bar bg-green-500 h-2 rounded-full" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+                                <span id="alert-convoyeur" class="text-xs text-slate-400">En attente de données...</span>
+                                <button onclick="showEquipmentDetail('convoyeur')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                                    Détails <i class="fas fa-arrow-right ml-1"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Row -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                            <h3 class="font-bold text-slate-800 mb-4">Tendances Température (24h)</h3>
+                            <div style="position: relative; height: 300px; width: 100%;">
+                                <canvas id="tempChart"></canvas>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                            <h3 class="font-bold text-slate-800 mb-4">Historique des Alarmes</h3>
+                            <div style="position: relative; height: 300px; width: 100%;">
+                                <canvas id="alarmChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUPERVISION SECTION -->
+                <div id="supervisionSection" class="hidden space-y-6 fade-in">
+                    <div id="readOnlyBanner" class="hidden bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                        <div class="flex items-center gap-2 text-blue-700">
+                            <i class="fas fa-info-circle"></i>
+                            <span class="text-sm font-medium">Mode lecture seule - Visualisation des données temps réel</span>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Real-time Gauges -->
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                            <h3 class="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                <i class="fas fa-tachometer-alt text-blue-600"></i>
+                                Remplisseuse - Métriques temps réel
+                            </h3>
+                            <div class="space-y-4" id="supervision-remplisseuse">
+                                <!-- Injected by JS -->
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                            <h3 class="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                <i class="fas fa-tachometer-alt text-cyan-600"></i>
+                                Compresseur - Métriques temps réel
+                            </h3>
+                            <div class="space-y-4" id="supervision-compresseur">
+                                <!-- Injected by JS -->
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                            <h3 class="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                <i class="fas fa-tachometer-alt text-indigo-600"></i>
+                                Convoyeur - Métriques temps réel
+                            </h3>
+                            <div class="space-y-4" id="supervision-convoyeur">
+                                <!-- Injected by JS -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                        <h3 class="font-bold text-slate-800 mb-4">Vue Synoptique de la Chaîne</h3>
+                        <div class="synoptic-container" id="synopticView">
+                            <!-- Ligne principale -->
+                            <div class="synoptic-line" style="top: 50%; left: 10%; width: 80%;"></div>
+                            
+                            <!-- Équipements -->
+                            <div class="synoptic-equip active" style="top: 35%; left: 15%; background: #3b82f6;" onclick="showEquipmentDetail('remplisseuse')">
+                                <i class="fas fa-fill-drip text-2xl mb-1"></i>
+                                <span>Remplisseuse</span>
+                                <span id="syno-remplisseuse-status" class="text-xs mt-1 opacity-75">Normal</span>
+                            </div>
+                            
+                            <div class="synoptic-equip active" style="top: 35%; left: 45%; background: #06b6d4;" onclick="showEquipmentDetail('compresseur')">
+                                <i class="fas fa-wind text-2xl mb-1"></i>
+                                <span>Compresseur</span>
+                                <span id="syno-compresseur-status" class="text-xs mt-1 opacity-75">Normal</span>
+                            </div>
+                            
+                            <div class="synoptic-equip active" style="top: 35%; left: 75%; background: #6366f1;" onclick="showEquipmentDetail('convoyeur')">
+                                <i class="fas fa-conveyor-belt text-2xl mb-1"></i>
+                                <span>Convoyeur</span>
+                                <span id="syno-convoyeur-status" class="text-xs mt-1 opacity-75">Normal</span>
+                            </div>
+                            
+                            <!-- Flux de données animé -->
+                            <div class="data-flow" style="top: 49%; left: 15%;"></div>
+                            <div class="data-flow" style="top: 49%; left: 45%; animation-delay: 0.6s;"></div>
+                            <div class="data-flow" style="top: 49%; left: 75%; animation-delay: 1.2s;"></div>
+                            
+                            <!-- Légende -->
+                            <div class="absolute bottom-4 left-4 text-white text-xs space-y-1">
+                                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-green-500"></span> Normal</div>
+                                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-amber-500"></span> Attention</div>
+                                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-red-500"></span> Critique</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ALARMS SECTION -->
+                <div id="alarmsSection" class="hidden space-y-6 fade-in">
+                    <div class="flex items-center justify-between">
+                        <div class="flex gap-2">
+                            <button onclick="filterAlarms('critical')" class="px-4 py-2 bg-red-50 text-red-700 rounded-lg text-sm font-medium border border-red-200 hover:bg-red-100">
+                                <i class="fas fa-exclamation-circle mr-2"></i>Critiques (<span id="count-critical">0</span>)
+                            </button>
+                            <button onclick="filterAlarms('warning')" class="px-4 py-2 bg-amber-50 text-amber-700 rounded-lg text-sm font-medium border border-amber-200 hover:bg-amber-100">
+                                <i class="fas fa-exclamation-triangle mr-2"></i>Avertissements (<span id="count-warning">0</span>)
+                            </button>
+                            <button onclick="filterAlarms('all')" class="px-4 py-2 bg-slate-50 text-slate-600 rounded-lg text-sm font-medium border border-slate-200 hover:bg-slate-100">
+                                <i class="fas fa-check-circle mr-2"></i>Toutes
+                            </button>
+                        </div>
+                       <button onclick="showModal('newAlarmModal')" class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">
+                          <i class="fas fa-plus mr-2"></i>Nouvelle alarme
+</button>
+                    </div>
+
+                    <div id="alarmsList" class="space-y-4">
+                        <!-- Injected by JS -->
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                        <h3 class="font-bold text-slate-800 mb-4">Historique des Alarmes</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left">
+                                <thead class="text-xs text-slate-500 uppercase bg-slate-50">
+                                    <tr>
+                                        <th class="px-4 py-3 rounded-tl-lg">Date/Heure</th>
+                                        <th class="px-4 py-3">Équipement</th>
+                                        <th class="px-4 py-3">Description</th>
+                                        <th class="px-4 py-3">Niveau</th>
+                                        <th class="px-4 py-3">Statut</th>
+                                        <th class="px-4 py-3 rounded-tr-lg">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="alarmsHistoryTable" class="divide-y divide-slate-100">
+                                    <!-- Injected by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WORK ORDERS SECTION -->
+                <div id="workordersSection" class="hidden space-y-6 fade-in">
+                    <div class="flex items-center justify-between">
+                        <div class="flex gap-2">
+                            <button onclick="filterWorkOrders('all')" class="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium border border-blue-200">Tous (<span id="count-wo-all">0</span>)</button>
+                            <button onclick="filterWorkOrders('in_progress')" class="px-4 py-2 bg-slate-50 text-slate-600 rounded-lg text-sm font-medium border border-slate-200">En cours (<span id="count-wo-progress">0</span>)</button>
+                            <button onclick="filterWorkOrders('planned')" class="px-4 py-2 bg-slate-50 text-slate-600 rounded-lg text-sm font-medium border border-slate-200">Planifiés (<span id="count-wo-planned">0</span>)</button>
+                            <button onclick="filterWorkOrders('completed')" class="px-4 py-2 bg-slate-50 text-slate-600 rounded-lg text-sm font-medium border border-slate-200">Terminés (<span id="count-wo-completed">0</span>)</button>
+                        </div>
+                        <button onclick="showModal('newWorkOrderModal')" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                            <i class="fas fa-plus mr-2"></i>Nouvel Ordre de Travail
+                        </button>
+                    </div>
+
+                    <div id="workOrdersList" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Injected by JS -->
+                    </div>
+                </div>
+
+                <!-- PLANNING SECTION -->
+                <div id="planningSection" class="hidden space-y-6 fade-in">
+                    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 id="planningTitle" class="font-bold text-slate-800 text-lg">Planification Préventive</h3>
+<div class="flex gap-2">
+    <button onclick="previousMonth()" class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm hover:bg-slate-50 transition-colors" title="Mois précédent"><i class="fas fa-chevron-left"></i></button>
+    <button onclick="nextMonth()" class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm hover:bg-slate-50 transition-colors" title="Mois suivant"><i class="fas fa-chevron-right"></i></button>
+    <button onclick="goToToday()" class="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-sm hover:bg-blue-100 transition-colors" title="Aujourd'hui">
+        <i class="fas fa-calendar-day"></i>
+    </button>
+</div>
+                        </div>
+                        
+                        <div class="grid grid-cols-7 gap-2 mb-2">
+                            <div class="text-center text-sm font-medium text-slate-500 py-2">Lun</div>
+                            <div class="text-center text-sm font-medium text-slate-500 py-2">Mar</div>
+                            <div class="text-center text-sm font-medium text-slate-500 py-2">Mer</div>
+                            <div class="text-center text-sm font-medium text-slate-500 py-2">Jeu</div>
+                            <div class="text-center text-sm font-medium text-slate-500 py-2">Ven</div>
+                            <div class="text-center text-sm font-medium text-slate-500 py-2">Sam</div>
+                            <div class="text-center text-sm font-medium text-slate-500 py-2">Dim</div>
+                        </div>
+                        
+                        <div class="grid grid-cols-7 gap-2" id="planningCalendar">
+                            <!-- Injected by JS -->
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                            <h3 class="font-bold text-slate-800 mb-4">Prochaines Maintenances Préventives</h3>
+                            <div class="space-y-3" id="upcomingMaintenance">
+                                <!-- Injected by JS -->
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                            <h3 class="font-bold text-slate-800 mb-4">Fréquences de Maintenance</h3>
+                            <div class="space-y-4" id="maintenanceFreq">
+                                <!-- Injected by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REPORTS SECTION -->
+                <div id="reportsSection" class="hidden space-y-6 fade-in">
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-bold text-slate-800 text-lg">Rapports d'Intervention</h3>
+                        <button onclick="exportReportsPDF()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                            <i class="fas fa-download mr-2"></i>Exporter PDF
+                        </button>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <table class="w-full text-sm text-left">
+                            <thead class="text-xs text-slate-500 uppercase bg-slate-50">
+                                <tr>
+                                    <th class="px-6 py-4">N° Rapport</th>
+                                    <th class="px-6 py-4">Date</th>
+                                    <th class="px-6 py-4">Équipement</th>
+                                    <th class="px-6 py-4">Type</th>
+                                    <th class="px-6 py-4">Technicien</th>
+                                    <th class="px-6 py-4">Durée</th>
+                                    <th class="px-6 py-4">Statut</th>
+                                    <th class="px-6 py-4">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reportsTable" class="divide-y divide-slate-100">
+                                <!-- Injected by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- USERS SECTION -->
+                <div id="usersSection" class="hidden space-y-6 fade-in">
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-bold text-slate-800 text-lg">Gestion des Utilisateurs</h3>
+                        <button onclick="showModal('newUserModal')" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                            <i class="fas fa-user-plus mr-2"></i>Ajouter un utilisateur
+                        </button>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <table class="w-full text-sm text-left">
+                            <thead class="text-xs text-slate-500 uppercase bg-slate-50">
+                                <tr>
+                                    <th class="px-6 py-4">Utilisateur</th>
+                                    <th class="px-6 py-4">Rôle</th>
+                                    <th class="px-6 py-4">Département</th>
+                                    <th class="px-6 py-4">Dernière connexion</th>
+                                    <th class="px-6 py-4">Statut</th>
+                                    <th class="px-6 py-4">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersTable" class="divide-y divide-slate-100">
+                                <!-- Injected by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- THRESHOLDS SECTION -->
+                <div id="thresholdsSection" class="hidden space-y-6 fade-in">
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-bold text-slate-800 text-lg">Configuration des Seuils</h3>
+                        <button onclick="saveThresholds()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                            <i class="fas fa-save mr-2"></i>Enregistrer les modifications
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6" id="thresholdsContainer">
+                        <!-- Injected by JS -->
+                    </div>
+                </div>
+
+                <!-- SETTINGS SECTION -->
+                <div id="settingsSection" class="hidden space-y-6 fade-in">
+                    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                        <h3 class="font-bold text-slate-800 text-lg mb-6">Paramètres Système</h3>
+                        
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div class="space-y-4">
+                                <h4 class="font-medium text-slate-800 border-b border-slate-200 pb-2">Informations Système</h4>
+                                <div class="space-y-3" id="systemInfo">
+                                    <!-- Injected by JS -->
+                                </div>
+                            </div>
+                            
+                            <div class="space-y-4">
+                                <h4 class="font-medium text-slate-800 border-b border-slate-200 pb-2">Configuration Réseau ESP32</h4>
+                                <div class="space-y-3" id="esp32Config">
+                                    <!-- Injected by JS -->
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-6 pt-6 border-t border-slate-200 flex gap-3">
+                            <button onclick="saveSettings()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                                <i class="fas fa-save mr-2"></i>Enregistrer
+                            </button>
+                            <button onclick="resetSettings()" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50">
+                                <i class="fas fa-undo mr-2"></i>Réinitialiser
+                            </button>
+                            <button onclick="restartSystem()" class="px-4 py-2 bg-white border border-red-300 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 ml-auto">
+                                <i class="fas fa-redo mr-2"></i>Redémarrer le système
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI ASSISTANT SECTION -->
+                <div id="aiassistantSection" class="hidden space-y-6 fade-in">
+                    <!-- Header IA -->
+                    <div class="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl p-6 text-white shadow-lg">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-xl font-bold flex items-center gap-2">
+                                    <i class="fas fa-robot"></i>
+                                    Assistant IA Maintenance
+                                </h3>
+                                <p class="text-purple-100 text-sm mt-1">Diagnostic intelligent et guidage pas à pas</p>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span id="aiStatusBadge" class="px-3 py-1 bg-white/20 rounded-full text-xs font-medium backdrop-blur">
+                                    <i class="fas fa-circle text-green-400 mr-1"></i>En ligne
+                                </span>
+                                <button onclick="toggleAIMode()" id="aiModeBtn" class="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-medium backdrop-blur transition-colors">
+                                    <i class="fas fa-brain mr-1"></i>Mode: Local
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Colonne 1: Chat IA -->
+                        <div class="lg:col-span-2 space-y-6">
+                            <!-- Zone de chat -->
+                            <div class="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col" style="height: 500px;">
+                                <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+                                    <h4 class="font-bold text-slate-800 flex items-center gap-2">
+                                        <i class="fas fa-comments text-purple-600"></i>
+                                        Conversation avec l'IA
+                                    </h4>
+                                    <button onclick="clearChat()" class="text-xs text-slate-400 hover:text-slate-600">
+                                        <i class="fas fa-trash mr-1"></i>Effacer
+                                    </button>
+                                </div>
+                                <div id="aiChatMessages" class="flex-1 overflow-y-auto p-4 space-y-4">
+                                    <!-- Message de bienvenue -->
+                                    <div class="flex gap-3">
+                                        <div class="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                            <i class="fas fa-robot text-purple-600 text-sm"></i>
+                                        </div>
+                                        <div class="bg-purple-50 rounded-lg p-3 max-w-[80%]">
+                                            <p class="text-sm text-slate-700">Bonjour ! Je suis votre assistant de maintenance intelligent. Je peux :</p>
+                                            <ul class="text-sm text-slate-600 mt-2 space-y-1 ml-4 list-disc">
+                                                <li>Diagnostiquer les pannes en temps réel</li>
+                                                <li>Guider pas à pas les interventions</li>
+                                                <li>Créer automatiquement des ordres de travail</li>
+                                                <li>Analyser l'historique des équipements</li>
+                                            </ul>
+                                            <p class="text-sm text-slate-700 mt-2">Comment puis-je vous aider aujourd'hui ?</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="p-4 border-t border-slate-100">
+                                    <div class="flex gap-2">
+                                        <input type="text" id="aiChatInput" placeholder="Décrivez le problème ou demandez un diagnostic..." 
+                                            class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                                            onkeypress="if(event.key==='Enter')sendAIMessage()">
+                                        <button onclick="sendAIMessage()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+                                            <i class="fas fa-paper-plane"></i>
+                                        </button>
+                                    </div>
+                                    <div class="flex gap-2 mt-2">
+                                        <button onclick="quickAsk('diagnostic')" class="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200">
+                                            🔍 Diagnostic complet
+                                        </button>
+                                        <button onclick="quickAsk('compresseur')" class="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200">
+                                            ⚙️ Compresseur
+                                        </button>
+                                        <button onclick="quickAsk('remplisseuse')" class="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200">
+                                            🥤 Remplisseuse
+                                        </button>
+                                        <button onclick="quickAsk('convoyeur')" class="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200">
+                                            🏭 Convoyeur
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Diagnostic Actif -->
+                            <div id="activeDiagnostic" class="hidden bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h4 class="font-bold text-slate-800 flex items-center gap-2">
+                                        <i class="fas fa-stethoscope text-red-500"></i>
+                                        Diagnostic en cours
+                                    </h4>
+                                    <span id="diagnosticEquip" class="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-medium">--</span>
+                                </div>
+                                <div id="diagnosticContent" class="space-y-4">
+                                    <!-- Injecté par JS -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Colonne 2: Panneau latéral -->
+                        <div class="space-y-6">
+                            <!-- État des capteurs temps réel -->
+                            <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                                <h4 class="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                    <i class="fas fa-heartbeat text-red-500"></i>
+                                    État Temps Réel
+                                </h4>
+                                <div id="aiSensorStatus" class="space-y-3">
+                                    <!-- Injecté par JS -->
+                                </div>
+                            </div>
+
+                            <!-- Actions rapides -->
+                            <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                                <h4 class="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                    <i class="fas fa-bolt text-amber-500"></i>
+                                    Actions Rapides
+                                </h4>
+                                <div class="space-y-2">
+                                    <button onclick="aiCreateWorkOrder()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors text-left">
+                                        <i class="fas fa-clipboard-list mr-2"></i>Créer un OT intelligent
+                                    </button>
+                                    <button onclick="aiAnalyzeHistory()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-purple-700 transition-colors text-left">
+                                        <i class="fas fa-chart-line mr-2"></i>Analyser l'historique
+                                    </button>
+                                    <button onclick="aiPredictiveAlert()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-amber-700 transition-colors text-left">
+                                        <i class="fas fa-exclamation-triangle mr-2"></i>Alerte prédictive
+                                    </button>
+                                    <button onclick="aiEmergencyStop()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-red-700 transition-colors text-left">
+                                        <i class="fas fa-stop-circle mr-2"></i>Arrêt d'urgence guidé
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Configuration IA -->
+                            <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                                <h4 class="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                    <i class="fas fa-cogs text-slate-500"></i>
+                                    Configuration IA
+                                </h4>
+                                <div class="space-y-3 text-sm">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-slate-600">Mode principal</span>
+                                        <select id="aiPrimaryMode" class="px-2 py-1 border border-slate-300 rounded text-xs" onchange="changeAIMode(this.value)">
+                                            <option value="local">Local (Règles)</option>
+                                            <option value="api">API Externe</option>
+                                            <option value="hybrid" selected>Hybride (Auto)</option>
+                                        </select>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-slate-600">Seuil de confiance</span>
+                                        <select id="aiConfidenceThreshold" class="px-2 py-1 border border-slate-300 rounded text-xs">
+                                            <option value="0.7">70%</option>
+                                            <option value="0.8" selected>80%</option>
+                                            <option value="0.9">90%</option>
+                                        </select>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-slate-600">Proactivité</span>
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" id="aiProactive" class="sr-only peer" checked onchange="toggleProactive()">
+                                            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                                        </label>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-slate-600">Auto-OT</span>
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" id="aiAutoOT" class="sr-only peer" checked>
+                                            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="mt-4 pt-4 border-t border-slate-200">
+                                    <p class="text-xs text-slate-500 mb-2">API Externe:</p>
+                                    <select id="aiExternalAPI" class="w-full px-2 py-1.5 border border-slate-300 rounded text-xs mb-2">
+                                        <option value="openrouter">OpenRouter (Free)</option>
+                                        <option value="groq">Groq (Free)</option>
+                                    </select>
+                                                                        <div class="flex gap-2">
+                                        <input type="password" id="aiApiKey" placeholder="Clé API OpenRouter" class="flex-1 px-2 py-1.5 border border-slate-300 rounded text-xs">
+                                        <button onclick="testAIConnection()" class="px-3 py-1.5 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 transition-colors">
+                                            <i class="fas fa-plug mr-1"></i>Tester
+                                        </button>
+                                    </div>
+                                    <div id="aiApiStatus" class="mt-2 text-xs hidden"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal: Nouvel Ordre de Travail -->
+    <div id="newWorkOrderModal" class="modal">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-slate-800">Nouvel Ordre de Travail</h3>
+                <button onclick="closeModal('newWorkOrderModal')" class="text-slate-400 hover:text-slate-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            
+            <form id="workOrderForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Équipement</label>
+                    <select id="woEquipment" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="1">Remplisseuse</option>
+                        <option value="2">Compresseur d'air</option>
+                        <option value="3">Convoyeur</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Type d'intervention</label>
+                    <select id="woType" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="preventive">Préventive</option>
+                        <option value="corrective">Corrective</option>
+                        <option value="predictive">Prédictive</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Priorité</label>
+                    <select id="woPriority" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="low">Basse</option>
+                        <option value="normal" selected>Normale</option>
+                        <option value="high">Haute</option>
+                        <option value="urgent">Urgente</option>
+                    </select>
+                </div>
+                
+               <div class="grid grid-cols-2 gap-4">
+    <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Date et heure d'intervention</label>
+        <input type="datetime-local" id="woScheduledDate" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+        <p class="text-xs text-slate-400 mt-1">Quand l'intervention doit commencer</p>
+    </div>
+    <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Date d'échéance</label>
+        <input type="date" id="woDeadline" min="" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+        <p class="text-xs text-slate-400 mt-1">Date limite de fin</p>
+    </div>
+</div>
+
+<div>
+    <label class="block text-sm font-medium text-slate-700 mb-1">Durée estimée</label>
+    <select id="woDuration" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+        <option value="0h30">30 minutes</option>
+        <option value="1h00">1 heure</option>
+        <option value="1h30">1 heure 30</option>
+        <option value="2h00" selected>2 heures</option>
+        <option value="2h30">2 heures 30</option>
+        <option value="3h00">3 heures</option>
+        <option value="4h00">4 heures</option>
+        <option value="6h00">6 heures</option>
+        <option value="8h00">8 heures</option>
+    </select>
+</div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Titre</label>
+                    <input type="text" id="woTitle" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Titre de l'intervention..." required>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                    <textarea id="woDescription" rows="3" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Décrivez l'intervention nécessaire..."></textarea>
+                </div>
+                
+                <div class="flex gap-3 pt-2">
+                    <button type="button" onclick="closeModal('newWorkOrderModal')" class="flex-1 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50">
+                        Annuler
+                    </button>
+                    <button type="submit" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                        Créer l'OT
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Détail Équipement -->
+    <div id="equipmentModal" class="modal">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+                <h3 id="equipmentModalTitle" class="text-lg font-bold text-slate-800">Détails Équipement</h3>
+                <button onclick="closeModal('equipmentModal')" class="text-slate-400 hover:text-slate-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            
+            <div id="equipmentModalContent" class="space-y-4">
+                <!-- Content will be injected by JavaScript -->
+            </div>
+            
+            <div class="mt-6 pt-4 border-t border-slate-200 flex gap-2">
+                <button onclick="createOTFromEquipment()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                    <i class="fas fa-clipboard-list mr-2"></i>Créer un OT
+                </button>
+                <button onclick="closeModal('equipmentModal')" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm hover:bg-slate-50">
+                    Fermer
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Nouvel Utilisateur -->
+    <div id="newUserModal" class="modal">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-slate-800">Ajouter un Utilisateur</h3>
+                <button onclick="closeModal('newUserModal')" class="text-slate-400 hover:text-slate-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            
+            <form id="userForm" class="space-y-4" onsubmit="submitUser(event)">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Nom d'utilisateur</label>
+                    <input type="text" id="userUsername" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Prénom</label>
+                    <input type="text" id="userFirstName" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Nom</label>
+                    <input type="text" id="userLastName" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                    <input type="email" id="userEmail" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Rôle</label>
+                    <select id="userRole" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="operateur">Opérateur</option>
+                        <option value="maintenance">Agent de maintenance</option>
+                        <option value="superviseur">Superviseur</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Département</label>
+                    <input type="text" id="userDept" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Mot de passe</label>
+                    <input type="password" id="userPassword" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value="password" required>
+                </div>
+                
+                <div class="flex gap-3 pt-2">
+                    <button type="button" onclick="closeModal('newUserModal')" class="flex-1 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50">
+                        Annuler
+                    </button>
+                    <button type="submit" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                        Ajouter
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+  <!-- Modal: Nouvelle Alarme -->
+<div id="newAlarmModal" class="modal">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-slate-800">Nouvelle Alarme</h3>
+            <button onclick="closeModal('newAlarmModal')" class="text-slate-400 hover:text-slate-600">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        
+        <form id="alarmForm" class="space-y-4" onsubmit="submitAlarm(event)">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Équipement</label>
+                <select id="alarmEquipment" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none">
+                    <option value="remplisseuse">Remplisseuse</option>
+                    <option value="compresseur">Compresseur d'air</option>
+                    <option value="convoyeur">Convoyeur</option>
+                </select>
+            </div>
+            
+            <div>
+    <label class="block text-sm font-medium text-slate-700 mb-1">Capteur</label>
+    <select id="alarmSensor" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none">
+        <!-- Options injectées dynamiquement par JS -->
+    </select>
+    <p id="alarmSensorInfo" class="text-xs text-slate-400 mt-1">Sélectionnez un équipement d'abord</p>
+</div>
+            
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Niveau</label>
+                    <select id="alarmSeverity" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none">
+                        <option value="warning">Avertissement</option>
+                        <option value="critical" selected>Critique</option>
+                        <option value="info">Information</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Valeur détectée</label>
+                    <input type="number" step="0.1" id="alarmValue" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none" placeholder="Ex: 85.5" required>
+                </div>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Titre</label>
+                <input type="text" id="alarmTitle" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none" placeholder="Ex: SurTempérature critique..." required>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                <textarea id="alarmDescription" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none" placeholder="Décrivez la situation..."></textarea>
+            </div>
+            
+            <div class="flex items-center gap-2 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                <input type="checkbox" id="alarmCreateWO" class="rounded text-red-600 focus:ring-red-500">
+                <label for="alarmCreateWO" class="text-sm text-amber-800">Créer automatiquement un ordre de travail</label>
+            </div>
+            
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="closeModal('newAlarmModal')" class="flex-1 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50">
+                    Annuler
+                </button>
+                <button type="submit" class="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">
+                    <i class="fas fa-bell mr-2"></i>Créer l'alarme
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="{% static 'js/app.js' %}"></script>
+</body>
+</html>
+
